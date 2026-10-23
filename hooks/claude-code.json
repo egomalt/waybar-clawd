@@ -1,10 +1,10 @@
 {
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "d=\"${XDG_RUNTIME_DIR:-/tmp}/clawd\"; mkdir -p \"$d\" && touch \"$d/claude-busy\"" }] }
+      { "hooks": [{ "type": "command", "command": "d=\"${XDG_RUNTIME_DIR:-/tmp}/clawd\"; mkdir -p \"$d\" && date +%s > \"$d/claude-busy\"" }] }
     ],
     "PreToolUse": [
-      { "hooks": [{ "type": "command", "command": "d=\"${XDG_RUNTIME_DIR:-/tmp}/clawd\"; [ -e \"$d/claude-busy\" ] && touch \"$d/claude-busy\"; true" }] }
+      { "hooks": [{ "type": "command", "command": "d=\"${XDG_RUNTIME_DIR:-/tmp}/clawd\"; [ -e \"$d/claude-busy\" ] && date +%s > \"$d/claude-busy\"; true" }] }
     ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "d=\"${XDG_RUNTIME_DIR:-/tmp}/clawd\"; rm -f \"$d/claude-busy\"; [ -d \"$d\" ] && touch \"$d/ev-done\"; true" }] }

@@ -12,11 +12,13 @@
 #   otherwise                         -> hangs around, plays now and then
 # Short reactions play on top: notifications, a long shell command finishing
 # (ok / fail), Claude Code finishing a task, and hearts on click (SIGUSR1).
+# After CLAWD_PAUSE seconds without input he freezes until you're back.
 # Frames, positions and stations come from clawd.css (see gen.py).
 
 DIR=$(dirname "$(readlink -f "$0")")
 DELAY=${CLAWD_DELAY:-0.083}    # 12 fps, like the emoji pack
 IDLE_AFTER=${CLAWD_IDLE:-60}
+PAUSE_AFTER=${CLAWD_PAUSE:-120}
 CPU_BUSY=${CLAWD_CPU_BUSY:-80}
 BATTERY_LOW=${CLAWD_BATTERY_LOW:-15}
 CPU_HOT=${CLAWD_CPU_HOT:-90}
@@ -39,22 +41,28 @@ DEMO=(code busy ok fail read chat music video alert notify done happy skate ball
 # events from outside (hooks/) arrive as files in $RUN
 RUN=${XDG_RUNTIME_DIR:-/tmp}/clawd
 mkdir -p "$RUN"
-rm -f "$RUN"/idle "$RUN"/ev-*
+rm -f "$RUN"/idle "$RUN"/pause "$RUN"/ev-*
 
 trap 'pkill -P $$' EXIT
 trap 'exit' TERM INT HUP
 
-# idle detection through a private hypridle instance
+# idle detection through a private hypridle instance; systemd idle inhibitors
+# (HyDE's caffeine mode, video players) keep him awake
 cat > "$RUN/hypridle.conf" <<EOF
 general {
     ignore_dbus_inhibit = true
-    ignore_systemd_inhibit = true
+    ignore_systemd_inhibit = false
     inhibit_sleep = 0
 }
 listener {
     timeout = $IDLE_AFTER
     on-timeout = touch $RUN/idle
     on-resume = rm -f $RUN/idle
+}
+listener {
+    timeout = $PAUSE_AFTER
+    on-timeout = touch $RUN/pause
+    on-resume = rm -f $RUN/pause
 }
 EOF
 pkill -f "hypridle -q -c $RUN/hypridle.conf"
@@ -70,6 +78,12 @@ pkill -f '^clawd-notify'
             [[ $line == *member=Notify* ]] && : > "$RUN/ev-notify"
         done
     } &
+
+# sleeping between frames with read -t on a fifo nobody writes to: no fork per frame
+rm -f "$RUN/tick"
+mkfifo "$RUN/tick"
+exec {tick_fd}<>"$RUN/tick"
+nap() { read -rt "$1" -u "$tick_fd"; }
 
 BAT=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1)
 TEMP=
@@ -108,21 +122,34 @@ hot() {
 }
 
 claude_busy() {
-    # refreshed by Claude Code hooks; stale after 5 minutes in case Stop never came
-    [[ -e $RUN/claude-busy ]] && (( EPOCHSECONDS - $(stat -c %Y "$RUN/claude-busy") < 300 ))
+    # Claude Code hooks write the time into the file; stale after 5 minutes in case Stop never came
+    local ts=0
+    [[ -e $RUN/claude-busy ]] || return 1
+    read -r ts < "$RUN/claude-busy"
+    (( EPOCHSECONDS - ${ts:-0} < 300 ))
 }
 
+playing=()   # names of playing MPRIS players, refreshed every few seconds
+last_players=0
+
 pick_mood() {
-    local class status name video=0 music=0
-    class=$(hyprctl activewindow -j | jq -r '.class // empty')
-    while read -r status name; do
-        [[ $status == Playing ]] || continue
+    local win class= status name video=0 music=0
+    win=$(hyprctl activewindow)
+    [[ $win =~ $'\n\tclass: '([^$'\n']*) ]] && class=${BASH_REMATCH[1]}
+    if (( EPOCHSECONDS - last_players >= 3 )); then
+        last_players=$EPOCHSECONDS
+        playing=()
+        while read -r status name; do
+            [[ $status == Playing ]] && playing+=("$name")
+        done < <(playerctl -a metadata --format '{{status}} {{playerName}}' 2>/dev/null)
+    fi
+    for name in "${playing[@]}"; do
         if [[ $name =~ $VIDEO_PLAYERS ]] || { [[ $name =~ $BROWSER_PLAYERS ]] && [[ $class =~ $READ_APPS ]]; }; then
             video=1
         else
             music=1
         fi
-    done < <(playerctl -a metadata --format '{{status}} {{playerName}}' 2>/dev/null)
+    done
     cpu
 
     if hot; then new=alert
@@ -150,9 +177,10 @@ play() {
 
 mood=idle
 i=0
-tick=0
 look=0     # idle frame while not blinking: 0 rest, 2 left, 3 right
 blink=0
+last_check=0
+last_out=
 
 demo=-1
 demo_i=0
@@ -182,7 +210,14 @@ trap 'play love' USR1
 trap 'demo_at 0' USR2
 
 while :; do
-    if (( tick % 12 == 0 )); then
+    # away long enough for the screen to be locked: freeze, check once a second
+    if [[ -e $RUN/pause ]] && [[ -z $shot ]] && (( demo < 0 )); then
+        nap 1
+        continue
+    fi
+
+    if (( EPOCHSECONDS != last_check )); then
+        last_check=$EPOCHSECONDS
         pick_mood
         [[ $new != "$mood" ]] && { mood=$new; i=0; }
         for ev in notify ok fail done; do
@@ -193,35 +228,42 @@ while :; do
             fi
         done
     fi
-    (( tick++ ))
 
     pos=${AT[${STATION[$mood]:-home}]}
     tip=${shot:-$mood}
+    delay=$DELAY
     if demo_step; then
         tip="demo: ${DEMO[demo]}"
     elif [[ -n $shot ]]; then
         frame=$shot-$(( shot_i % AT[n-$shot] ))
         (( ++shot_i >= shot_len )) && shot=
     elif [[ $mood == idle ]]; then
-        # mostly still, blinking and glancing around, now and then playing
+        # mostly still, so a few ticks a second are enough for blinks and glances
+        delay=0.25
         if (( blink > 0 )); then
             frame=idle-1
             (( blink-- ))
         else
             frame=idle-$look
-            (( RANDOM % 50 == 0 )) && blink=2
-            if (( RANDOM % 80 == 0 )); then
+            (( RANDOM % 16 == 0 )) && blink=1
+            if (( RANDOM % 27 == 0 )); then
                 looks=(0 0 2 3)
                 look=${looks[RANDOM % 4]}
             fi
-            (( RANDOM % 540 == 0 )) && play "${EXTRAS[RANDOM % ${#EXTRAS[@]}]}"
+            (( RANDOM % 180 == 0 )) && play "${EXTRAS[RANDOM % ${#EXTRAS[@]}]}"
         fi
     else
         frame=$mood-$(( i % AT[n-$mood] ))
         (( i++ ))
+        [[ $mood == sleep ]] && delay=0.166    # sleepy: half speed
     fi
 
-    printf '{"text":" ","tooltip":"Clawd: %s","class":["f-%s","p-%d"]}\n' "$tip" "$frame" "$pos"
+    # waybar only hears about actual changes
+    out="{\"text\":\" \",\"tooltip\":\"Clawd: $tip\",\"class\":[\"f-$frame\",\"p-$pos\"]}"
+    if [[ $out != "$last_out" ]]; then
+        printf '%s\n' "$out"
+        last_out=$out
+    fi
 
-    sleep "$DELAY" & wait $!
+    nap "$delay"
 done

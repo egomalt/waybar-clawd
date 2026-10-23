@@ -81,6 +81,7 @@ Settings are environment variables in `exec`:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CLAWD_IDLE` | `60` | seconds without input before he falls asleep |
+| `CLAWD_PAUSE` | `120` | seconds without input before he freezes completely, to save power while the screen is locked |
 | `CLAWD_CPU_BUSY` | `80` | CPU load in percent that counts as busy |
 | `CLAWD_CPU_HOT` | `90` | CPU temperature in °C that counts as hot |
 | `CLAWD_BATTERY_LOW` | `15` | battery percent that counts as low while discharging |
@@ -94,7 +95,7 @@ Settings are environment variables in `exec`:
 "exec": "CLAWD_IDLE=300 ~/.config/waybar/scripts/clawd/clawd.sh"
 ```
 
-Idle time comes from a separate `hypridle` instance that the script starts with its own config, so your `hypridle.conf` is left alone. Notifications are picked up with `dbus-monitor`, so it works with any notification daemon.
+Idle time comes from a separate `hypridle` instance that the script starts with its own config, so your `hypridle.conf` is left alone. It respects systemd idle inhibitors, so he stays awake in caffeine mode (`systemd-inhibit --what=idle`, as in HyDE) and while a video player blocks idling. Notifications are picked up with `dbus-monitor`, so it works with any notification daemon.
 
 The room, the furniture layout and `STATIONS` (where Clawd stands for each activity) are in `gen.py`. So is `ANIMS`, which says which emoji from the pack plays for each activity. To regenerate, point `CLAWD_PACK` at a directory with one folder of PNG frames per emoji, then run the script (needs Pillow):
 
