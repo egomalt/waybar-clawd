@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate Clawd pixel-art frames and the CSS that maps classes to them.
+"""Generate Clawd's room, his frames and the CSS that maps classes to them.
 
-Run after editing the sprite or the track settings:
+Run after editing the sprites, the room or the layout:
     python gen.py
 """
 from pathlib import Path
@@ -13,15 +13,35 @@ FRAMES = HERE / "frames"
 
 PX = 2            # logical px per sprite pixel on the bar
 OVERSAMPLE = 4    # PNG px per logical px, keeps pixels crisp after scaling
-TRACK = 160       # track width in logical px
 STEP = 2          # logical px per position class
 
 PALETTE = {
+    # Clawd
     "o": (217, 119, 87, 255),   # body
     "h": (232, 150, 120, 255),  # highlight
     "s": (178, 88, 60, 255),    # shadow / legs
     "e": (20, 20, 19, 255),     # eyes
+    # room
+    "w": (138, 90, 59, 255),    # wood
+    "W": (94, 60, 39, 255),     # dark wood
+    "b": (108, 127, 184, 255),  # blanket
+    "B": (82, 99, 154, 255),    # blanket shadow
+    "p": (230, 233, 245, 255),  # pillow
+    "f": (127, 132, 156, 255),  # window frame
+    "k": (116, 167, 232, 255),  # sky
+    "K": (220, 230, 248, 255),  # cloud
+    "g": (127, 196, 106, 255),  # leaf
+    "G": (78, 143, 69, 255),    # dark leaf
+    "t": (181, 101, 74, 255),   # pot
+    "T": (140, 74, 53, 255),    # pot shadow
+    "m": (69, 71, 90, 255),     # monitor
+    "c": (60, 90, 150, 255),    # screen
+    "C": (166, 227, 161, 255),  # code on screen
+    "l": (249, 226, 175, 255),  # lamp shade
+    "L": (127, 132, 156, 255),  # lamp pole
 }
+
+# Clawd sprite
 W, H = 16, 12
 
 
@@ -63,70 +83,156 @@ def compose(rows_body, legs, lift=0):
 
 def frames():
     out = {}
+    for d in "rlc":
+        out[f"look-{d}"] = compose(body(EYES[d]), LEGS["stand"])
+        out[f"blink-{d}"] = compose(body(EYES[d], blink=True), LEGS["stand"])
+        out[f"hop-{d}"] = compose(body(EYES[d]), LEGS["tuck"], lift=2)
     for d in "rl":
-        out[f"walk-{d}-0"] = compose(body(EYES[d]), LEGS["stand"])
+        out[f"walk-{d}-0"] = out[f"look-{d}"]
         out[f"walk-{d}-1"] = compose(body(EYES[d]), LEGS["step_a"])
         out[f"walk-{d}-2"] = compose(body(EYES[d]), LEGS["step_b"])
-        out[f"hop-{d}"] = compose(body(EYES[d]), LEGS["tuck"], lift=2)
-        out[f"blink-{d}"] = compose(body(EYES[d], blink=True), LEGS["stand"])
-    out["look-c"] = compose(body(EYES["c"]), LEGS["stand"])
-    out["blink-c"] = compose(body(EYES["c"], blink=True), LEGS["stand"])
     return out
 
 
-def render(grid, path):
-    s = PX * OVERSAMPLE
-    img = Image.new("RGBA", (W * s, H * s), (0, 0, 0, 0))
+# Room: furniture sprites placed by (col, row of their top edge)
+ROOM_W, ROOM_H = 76, H
+
+BED = [
+    "WW..............",
+    "WWppp...........",
+    "WWpppbbbbbbbbbbW",
+    "WWBBBBBBBBBBBBBW",
+    "WWwwwwwwwwwwwwwW",
+    "WW............WW",
+]
+WINDOW = [
+    ".ffffffffffff.",
+    ".fkkkkkfkkKKf.",
+    ".fkKKkkfkkkkf.",
+    ".ffffffffffff.",
+    ".fkkkkkfkkkkf.",
+    ".fkkkkkfkkkkf.",
+    ".ffffffffffff.",
+    "wwwwwwwwwwwwww",
+]
+PLANT = [
+    "..g.g.",
+    ".gGgGg",
+    "gGgGg.",
+    ".gGg..",
+    "TttttT",
+    ".tttt.",
+    ".TTTT.",
+]
+DESK = [
+    "wwwwwwwwwwwwwwwwww",
+    "WWWWWWWWWWWWWWWWWW",
+    ".W...........WwwW.",
+    ".W...........WWWW.",
+    ".W...........W..W.",
+    ".W...........W..W.",
+]
+MONITOR = [
+    "mmmmmmmmmm",
+    "mcCCCccccm",
+    "mccCCCCccm",
+    "mcCCcCCccm",
+    "mmmmmmmmmm",
+    "....mm....",
+]
+LAMP = [
+    "lll.",
+    "llll",
+    "..L.",
+    "..L.",
+    ".LLL",
+]
+
+FURNITURE = [
+    (BED, 1, ROOM_H - len(BED)),
+    (WINDOW, 18, 1),
+    (PLANT, 33, ROOM_H - len(PLANT)),
+    (DESK, 57, ROOM_H - len(DESK)),
+    (MONITOR, 63, ROOM_H - len(DESK) - len(MONITOR)),
+    (LAMP, 58, ROOM_H - len(DESK) - len(LAMP)),
+]
+
+# where Clawd stands for each activity, in room cols (left edge of his sprite)
+STATIONS = {"home": 40, "bed": 2, "window": 18, "plant": 31, "desk": 60}
+
+TRACK = ROOM_W * PX   # module width in logical px
+
+
+def room():
+    grid = [["."] * ROOM_W for _ in range(ROOM_H)]
+    for sprite, col, row in FURNITURE:
+        for y, line in enumerate(sprite):
+            for x, ch in enumerate(line):
+                if ch != ".":
+                    grid[row + y][col + x] = ch
+    return ["".join(r) for r in grid]
+
+
+def render(grid, path=None, scale=PX * OVERSAMPLE, bg=(0, 0, 0, 0)):
+    img = Image.new("RGBA", (len(grid[0]) * scale, len(grid) * scale), bg)
     for y, row in enumerate(grid):
         for x, ch in enumerate(row):
             if ch in PALETTE:
-                img.paste(PALETTE[ch], (x * s, y * s, (x + 1) * s, (y + 1) * s))
-    img.save(path)
+                img.paste(PALETTE[ch], (x * scale, y * scale, (x + 1) * scale, (y + 1) * scale))
+    if path:
+        img.save(path)
+    return img
+
+
+def overlay(base, sprite, col):
+    rows = [list(r) for r in base]
+    for y, line in enumerate(sprite):
+        for x, ch in enumerate(line):
+            if ch != ".":
+                rows[y][col + x] = ch
+    return ["".join(r) for r in rows]
 
 
 def preview(fr, scale=6):
-    """Walking preview.gif for the README."""
-    walk = [0, 1, 0, 2]
-    track, pics = 48, []
-    pos, d = 0, 1
-    for t in range(2 * (track - W) * 2):
-        name = f"walk-{'r' if d > 0 else 'l'}-{walk[t // 2 % 4]}"
-        img = Image.new("RGBA", (track, H), (30, 30, 46, 255))
-        for y, row in enumerate(fr[name]):
-            for x, ch in enumerate(row):
-                if ch in PALETTE:
-                    img.putpixel((pos + x, y), PALETTE[ch])
-        pics.append(img.resize((track * scale, H * scale), Image.NEAREST).convert("P"))
-        if t % 2:
-            pos += d
-            if pos in (0, track - W):
-                d = -d
+    """Idle preview.gif for the README."""
+    home = STATIONS["home"]
+    script = (["look-c"] * 12 + ["blink-c"] * 2 + ["look-c"] * 6 + ["look-l"] * 10
+              + ["look-r"] * 10 + ["blink-r"] * 2 + ["look-r"] * 4 + ["look-c"] * 4
+              + ["hop-c"] * 4 + ["look-c"] * 6)
+    base = room()
+    pics = [render(overlay(base, fr[name], home), scale=scale, bg=(30, 30, 46, 255)).convert("P")
+            for name in script]
     pics[0].save(HERE / "preview.gif", save_all=True, append_images=pics[1:],
-                 duration=70, loop=0, disposal=2)
+                 duration=100, loop=0, disposal=2)
 
 
 def main():
     FRAMES.mkdir(exist_ok=True)
+    for old in FRAMES.glob("*.png"):
+        old.unlink()
+    render(room(), FRAMES / "room.png")
+
+    stations = " ".join(f"{k}={v * PX}" for k, v in STATIONS.items())
     css = [
         "/* generated by gen.py */",
-        f"/* clawd: max={TRACK - W * PX} step={STEP} */",
+        f"/* clawd: max={TRACK - W * PX} step={STEP} {stations} */",
         "#custom-clawd {",
         f"    min-width: {TRACK}px;",
         f"    min-height: {H * PX}px;",
         "    padding: 0;",
-        "    background-repeat: no-repeat;",
-        f"    background-size: {W * PX}px {H * PX}px;",
+        "    background-repeat: no-repeat, no-repeat;",
+        f"    background-size: {W * PX}px {H * PX}px, {TRACK}px {ROOM_H * PX}px;",
         "}",
     ]
-    for name, grid in frames().items():
-        path = FRAMES / f"{name}.png"
-        render(grid, path)
-        css.append(f'#custom-clawd.f-{name} {{ background-image: url("frames/{name}.png"); }}')
+    fr = frames()
+    for name, grid in fr.items():
+        render(grid, FRAMES / f"{name}.png")
+        css.append(f'#custom-clawd.f-{name} {{ background-image: url("frames/{name}.png"), url("frames/room.png"); }}')
     for p in range(0, TRACK - W * PX + 1, STEP):
-        css.append(f"#custom-clawd.p-{p} {{ background-position: {p}px center; }}")
+        css.append(f"#custom-clawd.p-{p} {{ background-position: {p}px center, 0 center; }}")
     (HERE / "clawd.css").write_text("\n".join(css) + "\n")
-    preview(frames())
-    print(f"max position: {TRACK - W * PX}, step: {STEP}")
+    preview(fr)
+    print(f"track: {TRACK}px, stations: {stations}")
 
 
 if __name__ == "__main__":

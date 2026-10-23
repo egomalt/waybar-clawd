@@ -1,10 +1,10 @@
 # waybar-clawd
 
-Pixel-art Clawd walking along your Waybar.
+Pixel-art Clawd living in a tiny room on your Waybar.
 
 ![preview](preview.gif)
 
-He walks from edge to edge, glances at you and blinks now and then, and hops and turns around when clicked.
+He has a bed, a window, a plant and a desk with a computer. For now he hangs out in the middle of the room, looks around and blinks. Click him to make him hop.
 
 ## Install
 
@@ -34,17 +34,17 @@ Reload with `pkill -USR2 waybar`.
 
 ## Tweaking
 
-To change the speed, set `CLAWD_DELAY` in `exec`. It is seconds per frame and defaults to `0.07`:
+To change the frame rate, set `CLAWD_DELAY` in `exec`. It is seconds per frame and defaults to `0.1`:
 
 ```jsonc
-"exec": "CLAWD_DELAY=0.1 ~/.config/waybar/scripts/clawd/clawd.sh"
+"exec": "CLAWD_DELAY=0.15 ~/.config/waybar/scripts/clawd/clawd.sh"
 ```
 
-The sprite, colors, pixel size (`PX`) and track width (`TRACK`) are all set in `gen.py`. After editing them, regenerate the frames and CSS, which needs Pillow:
+Clawd's sprite, the furniture and its layout, the colors and the pixel size (`PX`) are all set in `gen.py`. `STATIONS` there lists where Clawd stands at each piece of furniture. After editing any of this, regenerate the frames and CSS, which needs Pillow:
 
 ```bash
 python gen.py
 ```
 
-At the default `PX = 2` the sprite is 24px tall. On a thinner bar, use `PX = 1`.
+At the default `PX = 2` the room is 152×24px. On a thinner bar, use `PX = 1`.
 
