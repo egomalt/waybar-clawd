@@ -4,6 +4,7 @@
         "return-type": "json",
         "format": "{}",
         "on-click": "pkill -USR1 -f scripts/clawd/[c]lawd.sh",
+        "on-click-right": "pkill -USR2 -f scripts/clawd/[c]lawd.sh",
         "tooltip": true
     }
 }
